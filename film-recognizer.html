@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinéLens — Reconnaissance de films</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+
+  :root {
+    --noir: #0a0a0a;
+    --rouge: #e8272a;
+    --or: #f5c842;
+    --gris: #1a1a1a;
+    --texte: #e8e4d9;
+    --muted: #666;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--noir);
+    color: var(--texte);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grain texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid #222;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2rem;
+    letter-spacing: 0.05em;
+    color: var(--texte);
+  }
+
+  .logo span { color: var(--rouge); }
+
+  .badge {
+    background: var(--rouge);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.6rem;
+    border-radius: 2px;
+  }
+
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+
+  .hero-text {
+    text-align: center;
+    margin-bottom: 2.5rem;
+  }
+
+  .hero-text h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(2.5rem, 8vw, 5rem);
+    line-height: 0.95;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.75rem;
+  }
+
+  .hero-text h1 em {
+    color: var(--or);
+    font-style: normal;
+  }
+
+  .hero-text p {
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-weight: 300;
+    max-width: 380px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* Camera section */
+  .camera-wrapper {
+    position: relative;
+    background: var(--gris);
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    margin-bottom: 1.25rem;
+  }
+
+  #video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  #canvas { display: none; }
+
+  .camera-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(4px);
+    flex-direction: column;
+    gap: 1rem;
+    transition: opacity 0.4s;
+  }
+
+  .camera-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .camera-icon {
+    width: 56px;
+    height: 56px;
+    border: 2px solid var(--rouge);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+  }
+
+  .camera-overlay p {
+    color: var(--muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* Corner brackets */
+  .brackets {
+    position: absolute;
+    inset: 12px;
+    pointer-events: none;
+  }
+
+  .brackets::before,
+  .brackets::after,
+  .bracket-br::before,
+  .bracket-br::after {
+    content: '';
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-color: var(--rouge);
+    border-style: solid;
+    opacity: 0.7;
+  }
+
+  .brackets::before { top: 0; left: 0; border-width: 2px 0 0 2px; }
+  .brackets::after  { top: 0; right: 0; border-width: 2px 2px 0 0; }
+  .bracket-br::before { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+  .bracket-br::after  { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  /* Scanning animation */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--rouge), transparent);
+    opacity: 0;
+    animation: scan 2s ease-in-out infinite;
+  }
+
+  .scan-line.active { opacity: 1; }
+
+  @keyframes scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.75rem 1.75rem;
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--rouge);
+    color: white;
+  }
+
+  .btn-primary:hover { background: #c82024; transform: translateY(-1px); }
+  .btn-primary:disabled { background: #3a1a1a; color: #555; cursor: not-allowed; transform: none; }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--texte);
+    border: 1px solid #333;
+  }
+
+  .btn-secondary:hover { border-color: #555; }
+
+  /* Result card */
+  .result-section {
+    min-height: 200px;
+  }
+
+  .result-card {
+    background: var(--gris);
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 1.75rem;
+    display: none;
+    animation: fadeUp 0.4s ease;
+  }
+
+  .result-card.visible { display: block; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .result-label {
+    font-size: 0.65rem;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--rouge);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .result-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #2a2a2a;
+  }
+
+  .result-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.2rem;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.5rem;
+    color: var(--or);
+  }
+
+  .result-meta {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-bottom: 1.25rem;
+    font-weight: 300;
+    letter-spacing: 0.03em;
+  }
+
+  .result-body {
+    font-size: 0.92rem;
+    line-height: 1.75;
+    color: var(--texte);
+    opacity: 0.9;
+    white-space: pre-wrap;
+  }
+
+  .confidence-bar {
+    margin-top: 1.25rem;
+    height: 3px;
+    background: #2a2a2a;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .confidence-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--rouge), var(--or));
+    border-radius: 2px;
+    transition: width 1s ease;
+    width: 0%;
+  }
+
+  /* Loading state */
+  .loading-indicator {
+    display: none;
+    text-align: center;
+    padding: 3rem;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .loading-indicator.visible { display: flex; }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 2px solid #2a2a2a;
+    border-top-color: var(--rouge);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Error */
+  .error-card {
+    background: #1a0808;
+    border: 1px solid #4a1515;
+    border-radius: 4px;
+    padding: 1.25rem 1.5rem;
+    font-size: 0.85rem;
+    color: #cc6666;
+    display: none;
+    line-height: 1.6;
+  }
+
+  .error-card.visible { display: block; }
+
+  /* History pills */
+  .history {
+    margin-top: 2rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .history-pill {
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    color: var(--muted);
+    font-size: 0.72rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+
+  .history-pill:hover { border-color: var(--rouge); color: var(--texte); }
+
+  footer {
+    text-align: center;
+    padding: 1.5rem;
+    color: #333;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-top: 1px solid #111;
+    margin-top: 2rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Ciné<span>Lens</span></div>
+  <div class="badge">IA · Beta</div>
+</header>
+
+<main>
+  <div class="hero-text">
+    <h1>Identifiez <em>n'importe quel</em><br>film instantanément</h1>
+    <p>Pointez votre caméra vers un écran, capturez une image, et laissez l'IA reconnaître le film.</p>
+  </div>
+
+  <!-- Camera -->
+  <div class="camera-wrapper">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div class="camera-overlay" id="cameraOverlay">
+      <div class="camera-icon">📷</div>
+      <p>Activer la caméra</p>
+    </div>
+
+    <div class="brackets">
+      <div class="bracket-br"></div>
+    </div>
+
+    <div class="scan-line" id="scanLine"></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-secondary" id="btnStart" onclick="startCamera()">Activer la caméra</button>
+    <button class="btn btn-primary" id="btnCapture" onclick="captureAndAnalyze()" disabled>
+      📸 Capturer &amp; Identifier
+    </button>
+  </div>
+
+  <!-- Results -->
+  <div class="result-section">
+    <div class="loading-indicator" id="loading">
+      <div class="spinner"></div>
+      <div class="loading-text">Analyse de l'image en cours…</div>
+    </div>
+
+    <div class="error-card" id="errorCard"></div>
+
+    <div class="result-card" id="resultCard">
+      <div class="result-label">Film identifié</div>
+      <div class="result-title" id="resultTitle">—</div>
+      <div class="result-meta" id="resultMeta"></div>
+      <div class="result-body" id="resultBody"></div>
+      <div class="confidence-bar">
+        <div class="confidence-fill" id="confidenceFill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="history" id="history"></div>
+</main>
+
+<footer>CinéLens · Propulsé par Claude AI · Aucune donnée conservée</footer>
+
+<script>
+const video   = document.getElementById('video');
+const canvas  = document.getElementById('canvas');
+const overlay = document.getElementById('cameraOverlay');
+const scanLine= document.getElementById('scanLine');
+const btnCap  = document.getElementById('btnCapture');
+const btnStart= document.getElementById('btnStart');
+const loading = document.getElementById('loading');
+const errCard = document.getElementById('errorCard');
+const resCard = document.getElementById('resultCard');
+const history = document.getElementById('history');
+
+let stream = null;
+const searchHistory = [];
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream;
+    overlay.classList.add('hidden');
+    btnCap.disabled = false;
+    btnStart.textContent = '🔴 Caméra active';
+    btnStart.disabled = true;
+  } catch(e) {
+    showError('Impossible d\'accéder à la caméra. Vérifiez les permissions de votre navigateur.');
+  }
+}
+
+async function captureAndAnalyze() {
+  if (!stream) { showError('Veuillez d\'abord activer la caméra.'); return; }
+
+  // Capture frame
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const imageBase64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+  // UI feedback
+  scanLine.classList.add('active');
+  setLoading(true);
+  hideAll();
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 }
+            },
+            {
+              type: 'text',
+              text: `Tu es un expert cinéphile. Analyse cette image capturée depuis une caméra pointée vers un écran de cinéma ou de télévision.
+
+Identifie le film ou la série si possible. Réponds en JSON strict (sans markdown) avec ce format :
+{
+  "identified": true ou false,
+  "title": "Titre du film/série",
+  "year": "Année",
+  "director": "Réalisateur",
+  "confidence": 85,
+  "description": "Brève description du film et de la scène visible si identifiable (2-3 phrases max)",
+  "reason": "Pourquoi tu penses que c'est ce film (indices visuels, acteurs, décors, style...)"
+}
+
+Si tu ne peux pas identifier le film, mets identified: false et explique ce que tu vois dans reason.`
+            }
+          ]
+        }]
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || 'Erreur API');
+    }
+
+    const text = data.content.map(b => b.text || '').join('');
+    let result;
+    try {
+      result = JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch {
+      throw new Error('Réponse inattendue de l\'IA. Réessayez.');
+    }
+
+    showResult(result);
+
+  } catch(e) {
+    showError(e.message);
+  } finally {
+    setLoading(false);
+    scanLine.classList.remove('active');
+  }
+}
+
+function showResult(r) {
+  resCard.classList.add('visible');
+
+  if (r.identified) {
+    document.getElementById('resultTitle').textContent = r.title || '?';
+    document.getElementById('resultMeta').textContent =
+      [r.year, r.director].filter(Boolean).join(' · ');
+    document.getElementById('resultBody').textContent =
+      (r.description ? r.description + '\n\n' : '') +
+      (r.reason ? '🔍 ' + r.reason : '');
+
+    setTimeout(() => {
+      document.getElementById('confidenceFill').style.width = (r.confidence || 70) + '%';
+    }, 100);
+
+    // Add to history
+    if (r.title && !searchHistory.includes(r.title)) {
+      searchHistory.push(r.title);
+      const pill = document.createElement('button');
+      pill.className = 'history-pill';
+      pill.textContent = r.title;
+      history.appendChild(pill);
+    }
+
+  } else {
+    document.getElementById('resultTitle').textContent = 'Film non identifié';
+    document.getElementById('resultMeta').textContent = '';
+    document.getElementById('resultBody').textContent =
+      r.reason || 'L\'image n\'est pas assez nette ou le film est inconnu. Essayez avec une image plus claire.';
+    document.getElementById('confidenceFill').style.width = '0%';
+  }
+}
+
+function showError(msg) {
+  errCard.textContent = '⚠️ ' + msg;
+  errCard.classList.add('visible');
+}
+
+function hideAll() {
+  errCard.classList.remove('visible');
+  resCard.classList.remove('visible');
+  document.getElementById('confidenceFill').style.width = '0%';
+}
+
+function setLoading(on) {
+  loading.classList.toggle('visible', on);
+  btnCap.disabled = on;
+}
+</script>
+</body>
+</html>
